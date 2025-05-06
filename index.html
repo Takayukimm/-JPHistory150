@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SAPIX 150 Flashcards</title>
+  <link rel="manifest" href="manifest.json" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body class="min-h-screen bg-gray-100 flex flex-col items-center p-6 gap-6">
+  <div id="root"></div>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js');
+      });
+    }
+  </script>
+
+  <script type="text/javascript">
+    const { useState, useEffect, useCallback } = React;
+
+    function useCards() {
+      const [cards, setCards] = useState([]);
+      useEffect(() => {
+        fetch("sapix_150.csv")
+          .then(r => r.text())
+          .then(text => {
+            const data = Papa.parse(text, { header: true, skipEmptyLines: true }).data.map(r => ({
+              front: r.Front,
+              back: r.Back,
+              extra: r.Extra,
+            }));
+            setCards(data);
+          });
+      }, []);
+      return cards;
+    }
+
+    function FlashcardApp() {
+      const cards = useCards();
+      const [group, setGroup] = useState(null);
+      const [startIdx, setStartIdx] = useState(0);
+      const [queue, setQueue] = useState([]);
+      const [current, setCurrent] = useState(null);
+      const [showBack, setShowBack] = useState(false);
+      const [stats, setStats] = useState({ ok: 0, close: 0, wrong: 0 });
+
+      const buildQueue = useCallback(() => {
+        if (group === null) return;
+        const base = group * 30;
+        const indices = [...Array(30).keys()].map(i => base + i).slice(startIdx);
+        setQueue(indices);
+        setCurrent(null);
+        setShowBack(false);
+        setStats({ ok: 0, close: 0, wrong: 0 });
+      }, [group, startIdx]);
+
+      useEffect(() => { buildQueue(); }, [group]);
+
+      const nextCard = useCallback(() => {
+        if (queue.length === 0) {
+          setCurrent(null);
+          return;
+        }
+        setCurrent(queue[0]);
+        setQueue(q => q.slice(1));
+        setShowBack(false);
+      }, [queue]);
+
+      const gradeCard = (grade) => {
+        setStats(prev => ({
+          ok: prev.ok + (grade === 0 ? 1 : 0),
+          close: prev.close + (grade === 1 ? 1 : 0),
+          wrong: prev.wrong + (grade === 2 ? 1 : 0),
+        }));
+        if (grade > 0) setQueue(q => [...q, current]);
+        nextCard();
+      };
+
+      if (cards.length === 0) {
+        return React.createElement('p', {className: 'mt-10 text-lg'}, 'Loading cards…');
+      }
+
+      return React.createElement('div', {className: 'flex flex-col items-center gap-6 w-full'}, 
+        React.createElement('h1', {className: 'text-3xl font-bold'}, 'SAPIX 150 Flashcards'),
+
+        group === null && React.createElement('div', {className: 'flex flex-col items-center gap-4'},
+          React.createElement('p', {className: 'font-medium'}, '30問セットを選択'),
+          React.createElement('div', {className: 'flex gap-3'}, 
+            [1,2,3,4,5].map(n => React.createElement('button', {key:n, onClick: () => setGroup(n-1), className:'px-4 py-2 bg-blue-600 text-white rounded'}, n))
+          )
+        ),
+
+        group !== null && current === null && queue.length === 0 && React.createElement('div', {className:'w-80 flex flex-col gap-4 items-center'},
+          React.createElement('p', null, '開始位置を数字で選択（0-29）'),
+          React.createElement('input', {type:'number', min:0, max:29, value:startIdx, onChange:e=>setStartIdx(parseInt(e.target.value)||0), className:'border p-1 w-20 text-center'}),
+          React.createElement('button',{className:'px-4 py-2 bg-green-600 text-white rounded', onClick:buildQueue},'キューを作成'),
+          queue.length>0 && React.createElement('button',{className:'px-4 py-2 bg-green-500 text-white rounded', onClick:nextCard},'スタート')
+        ),
+
+        current !== null && React.createElement('div',{className:'bg-white rounded-xl shadow w-full max-w-xl p-8 flex flex-col items-center gap-4'},
+          React.createElement('p',{className:'text-xl font-semibold min-h-[4rem] text-center'}, showBack ? cards[current].back : cards[current].front),
+          showBack && cards[current].extra && React.createElement('p',{className:'text-sm text-gray-600'}, cards[current].extra),
+          React.createElement('div',{className:'flex gap-3 mt-4'},
+            !showBack ?
+              React.createElement('button',{className:'px-4 py-2 bg-gray-200 rounded', onClick:()=>setShowBack(true)},'答えを見る')
+            :
+              React.createElement(React.Fragment,null,
+                React.createElement('button',{className:'px-4 py-2 bg-green-600 text-white rounded',onClick:()=>gradeCard(0)},'覚えた'),
+                React.createElement('button',{className:'px-4 py-2 bg-yellow-500 text-white rounded',onClick:()=>gradeCard(1)},'惜しい'),
+                React.createElement('button',{className:'px-4 py-2 bg-red-600 text-white rounded',onClick:()=>gradeCard(2)},'全然')
+              )
+          ),
+          React.createElement('p',{className:'text-xs text-gray-500 mt-2'},`残り ${queue.length}`)
+        ),
+
+        group !== null && current === null && queue.length === 0 && (stats.ok+stats.close+stats.wrong)>0 && React.createElement('div',{className:'flex flex-col items-center gap-2'},
+          React.createElement('p',{className:'text-lg font-medium'},'結果'),
+          React.createElement('div',{className:'flex gap-4'},
+            React.createElement('span',{className:'text-green-600'},`覚えた ${stats.ok}`),
+            React.createElement('span',{className:'text-yellow-500'},`惜しい ${stats.close}`),
+            React.createElement('span',{className:'text-red-600'},`全然 ${stats.wrong}`)
+          ),
+          React.createElement('button',{className:'mt-2 px-4 py-2 bg-blue-600 text-white rounded', onClick:()=>{setGroup(null);setQueue([]);}},'別セットを選ぶ')
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(FlashcardApp));
+  </script>
+</body>
+</html>
